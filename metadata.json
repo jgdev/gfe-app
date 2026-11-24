@@ -1,0 +1,6 @@
+{
+  "name": "Fretcraft",
+  "description": "Interactive guitar fretboard for solo improvisation across the full neck, with scale diagrams, interactive chord charts, backing chord loops, and a real-time chromatic tuner.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
