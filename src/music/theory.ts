@@ -1,33 +1,50 @@
+import type { NoteNotation } from '../i18n/translations';
+
 export interface NoteSpelling {
   pitchClass: number; // 0 = C, 1 = C#/Db, ..., 11 = B
   sharp: string;
   flat: string;
+  solfegeSharp: string;
+  solfegeFlat: string;
   label: string;
 }
 
 export const CHROMATIC_NOTES: NoteSpelling[] = [
-  { pitchClass: 0, sharp: 'C', flat: 'C', label: 'C' },
-  { pitchClass: 1, sharp: 'C#', flat: 'Db', label: 'C# / Db' },
-  { pitchClass: 2, sharp: 'D', flat: 'D', label: 'D' },
-  { pitchClass: 3, sharp: 'D#', flat: 'Eb', label: 'Eb' },
-  { pitchClass: 4, sharp: 'E', flat: 'E', label: 'E' },
-  { pitchClass: 5, sharp: 'F', flat: 'F', label: 'F' },
-  { pitchClass: 6, sharp: 'F#', flat: 'Gb', label: 'F# / Gb' },
-  { pitchClass: 7, sharp: 'G', flat: 'G', label: 'G' },
-  { pitchClass: 8, sharp: 'G#', flat: 'Ab', label: 'Ab' },
-  { pitchClass: 9, sharp: 'A', flat: 'A', label: 'A' },
-  { pitchClass: 10, sharp: 'A#', flat: 'Bb', label: 'Bb' },
-  { pitchClass: 11, sharp: 'B', flat: 'B', label: 'B' },
+  { pitchClass: 0, sharp: 'C', flat: 'C', solfegeSharp: 'Do', solfegeFlat: 'Do', label: 'C' },
+  { pitchClass: 1, sharp: 'C#', flat: 'Db', solfegeSharp: 'Do#', solfegeFlat: 'Reb', label: 'C# / Db' },
+  { pitchClass: 2, sharp: 'D', flat: 'D', solfegeSharp: 'Re', solfegeFlat: 'Re', label: 'D' },
+  { pitchClass: 3, sharp: 'D#', flat: 'Eb', solfegeSharp: 'Re#', solfegeFlat: 'Mib', label: 'Eb' },
+  { pitchClass: 4, sharp: 'E', flat: 'E', solfegeSharp: 'Mi', solfegeFlat: 'Mi', label: 'E' },
+  { pitchClass: 5, sharp: 'F', flat: 'F', solfegeSharp: 'Fa', solfegeFlat: 'Fa', label: 'F' },
+  { pitchClass: 6, sharp: 'F#', flat: 'Gb', solfegeSharp: 'Fa#', solfegeFlat: 'Solb', label: 'F# / Gb' },
+  { pitchClass: 7, sharp: 'G', flat: 'G', solfegeSharp: 'Sol', solfegeFlat: 'Sol', label: 'G' },
+  { pitchClass: 8, sharp: 'G#', flat: 'Ab', solfegeSharp: 'Sol#', solfegeFlat: 'Lab', label: 'Ab' },
+  { pitchClass: 9, sharp: 'A', flat: 'A', solfegeSharp: 'La', solfegeFlat: 'La', label: 'A' },
+  { pitchClass: 10, sharp: 'A#', flat: 'Bb', solfegeSharp: 'La#', solfegeFlat: 'Sib', label: 'Bb' },
+  { pitchClass: 11, sharp: 'B', flat: 'B', solfegeSharp: 'Si', solfegeFlat: 'Si', label: 'B' },
 ];
 
 export const KEY_DISPLAY_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+export const KEY_DISPLAY_NAMES_SOLFEGE = ['Do', 'Reb', 'Re', 'Mib', 'Mi', 'Fa', 'Fa#', 'Sol', 'Lab', 'La', 'Sib', 'Si'];
+
+export function getKeyDisplayNames(notation: NoteNotation = 'letters'): string[] {
+  return notation === 'solfege' ? KEY_DISPLAY_NAMES_SOLFEGE : KEY_DISPLAY_NAMES;
+}
 
 // Keys that conventionally prefer flat spelling
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 8, 10]);
 
-export function getNoteName(pitchClass: number, preferFlats = false): string {
+export function getNoteName(
+  pitchClass: number,
+  preferFlats = false,
+  notation: NoteNotation = 'letters'
+): string {
   const pc = ((pitchClass % 12) + 12) % 12;
-  return preferFlats ? CHROMATIC_NOTES[pc].flat : CHROMATIC_NOTES[pc].sharp;
+  const entry = CHROMATIC_NOTES[pc];
+  if (notation === 'solfege') {
+    return preferFlats ? entry.solfegeFlat : entry.solfegeSharp;
+  }
+  return preferFlats ? entry.flat : entry.sharp;
 }
 
 export function shouldUseFlats(rootPitchClass: number, scaleId: string): boolean {
@@ -54,10 +71,14 @@ export function midiToFrequency(midi: number, a4 = 440): number {
   return a4 * Math.pow(2, (midi - 69) / 12);
 }
 
-export function midiToNoteWithOctave(midi: number, preferFlats = false): string {
+export function midiToNoteWithOctave(
+  midi: number,
+  preferFlats = false,
+  notation: NoteNotation = 'letters'
+): string {
   const pc = ((midi % 12) + 12) % 12;
   const octave = Math.floor(midi / 12) - 1;
-  return `${getNoteName(pc, preferFlats)}${octave}`;
+  return `${getNoteName(pc, preferFlats, notation)}${octave}`;
 }
 
 export const INTERVAL_LABELS: Record<number, string> = {
@@ -428,7 +449,8 @@ export interface DiatonicChord {
 
 export function getDiatonicChordsForScale(
   rootPitchClass: number,
-  scale: ScaleDefinition
+  scale: ScaleDefinition,
+  notation: NoteNotation = 'letters'
 ): DiatonicChord[] {
   const preferFlats = shouldUseFlats(rootPitchClass, scale.id);
   const intervals = scale.intervals;
@@ -465,7 +487,7 @@ export function getDiatonicChordsForScale(
       }
 
       const chordRootPc = (rootPitchClass + rootInt) % 12;
-      const noteName = getNoteName(chordRootPc, preferFlats);
+      const noteName = getNoteName(chordRootPc, preferFlats, notation);
       const role: DiatonicChord['role'] =
         idx === 0 ? 'Tonic' : idx === 3 || idx === 1 ? 'Subdominant' : idx === 4 || idx === 6 ? 'Dominant' : 'Color';
 
@@ -509,7 +531,7 @@ export function getDiatonicChordsForScale(
     return {
       degreeNumeral: t.numeral,
       rootPitchClass: chordRootPc,
-      name: `${getNoteName(chordRootPc, preferFlats)}${t.quality}`,
+      name: `${getNoteName(chordRootPc, preferFlats, notation)}${t.quality}`,
       quality: t.quality,
       pitchClasses: t.pcs.map((p) => (rootPitchClass + p) % 12),
       role: t.role,
@@ -716,3 +738,62 @@ export function getBackingProgressionsForScale(scale: ScaleDefinition): BackingP
     },
   ];
 }
+
+// 26 QWERTY letter keys in ascending row order: Q–P, A–L, Z–M
+export const QWERTY_NOTE_KEYS = [
+  'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P',
+  'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L',
+  'Z', 'X', 'C', 'V', 'B', 'N', 'M',
+] as const;
+
+export const QWERTY_CODE_TO_INDEX: Record<string, number> = Object.fromEntries(
+  QWERTY_NOTE_KEYS.map((letter, idx) => [`Key${letter}`, idx])
+);
+
+export interface PlayableFretNote {
+  id: string; // `${tuningIdx}_${fret}`
+  tuningIdx: number; // 0 = String 6 (Low E) .. 5 = String 1 (High E)
+  stringNumber: number; // 6 down to 1
+  fret: number;
+  midi: number;
+  pitchClass: number;
+  keyHint?: string;
+}
+
+/**
+ * Computes ordered playable scale notes strictly from String 6 -> String 1,
+ * low fret -> high fret, scoped to activePosition (or the visible Full Neck).
+ */
+export function computeOrderedPlayableNotes(
+  rootPitchClass: number,
+  scale: ScaleDefinition,
+  tuning: GuitarTuning,
+  fretCount: number,
+  activePosition: ScalePositionWindow | null
+): PlayableFretNote[] {
+  const scalePcSet = new Set(scale.intervals.map((i) => (rootPitchClass + i) % 12));
+  const startFret = activePosition ? Math.max(0, activePosition.startFret) : 0;
+  const endFret = activePosition ? Math.min(fretCount, activePosition.endFret) : fretCount;
+
+  const list: PlayableFretNote[] = [];
+  for (let tuningIdx = 0; tuningIdx < 6; tuningIdx++) {
+    const openMidi = tuning.midiNotes[tuningIdx];
+    for (let fret = startFret; fret <= endFret; fret++) {
+      const midi = openMidi + fret;
+      const pitchClass = ((midi % 12) + 12) % 12;
+      if (!scalePcSet.has(pitchClass)) continue;
+      const idx = list.length;
+      list.push({
+        id: `${tuningIdx}_${fret}`,
+        tuningIdx,
+        stringNumber: 6 - tuningIdx,
+        fret,
+        midi,
+        pitchClass,
+        keyHint: idx < QWERTY_NOTE_KEYS.length ? QWERTY_NOTE_KEYS[idx] : undefined,
+      });
+    }
+  }
+  return list;
+}
+

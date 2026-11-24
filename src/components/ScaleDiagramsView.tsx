@@ -3,12 +3,12 @@ import { ArrowUpRight, Play, Square } from 'lucide-react';
 import {
   GuitarTuning,
   INTERVAL_LABELS,
-  KEY_DISPLAY_NAMES,
   SCALES,
   ScaleCategory,
   ScaleDefinition,
   ScalePositionWindow,
   getDiatonicChordsForScale,
+  getKeyDisplayNames,
   getNoteName,
   getScalePositions,
   getScaleStepFormula,
@@ -16,6 +16,7 @@ import {
 } from '../music/theory';
 import { guitarSynth } from '../audio/guitarSynth';
 import { NoteDisplayMode } from './FretboardCanvas';
+import { useI18n } from '../i18n/I18nContext';
 
 interface ScaleDiagramsViewProps {
   rootPitchClass: number;
@@ -60,6 +61,7 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
   onPlayBox,
   onFocusNeck,
 }) => {
+  const { t, notation } = useI18n();
   const scaleMap = useMemo(() => {
     const m = new Map<number, { interval: number; degree: number }>();
     scale.intervals.forEach((intVal, idx) => {
@@ -90,20 +92,18 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
       <div className="flex items-start justify-between gap-2">
         <div>
           <h3 className="text-base font-semibold text-[#F3F4F6] font-display">
-            {position.name}
+            {t.scalesView.positionLabel(position.id)}
           </h3>
           <div className="text-xs text-[#9CA3AF] mt-0.5 flex items-center gap-1.5 font-mono tabular-nums">
             <span>{position.cagedShape}</span>
             <span aria-hidden="true">·</span>
-            <span>
-              Frets {position.startFret}–{position.endFret}
-            </span>
+            <span>{t.fretboard.fretsRange(position.startFret, position.endFret)}</span>
           </div>
         </div>
         <button
           type="button"
           onClick={() => onPlayBox(position)}
-          aria-label={isPlayingThisBox ? `Stop ${position.name}` : `Play ${position.name}`}
+          aria-label={isPlayingThisBox ? `${t.scalesView.stop} ${position.name}` : `${t.scalesView.play} ${position.name}`}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
             isPlayingThisBox
               ? 'bg-rose-500 text-white'
@@ -113,12 +113,12 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
           {isPlayingThisBox ? (
             <>
               <Square className="w-3 h-3 fill-current" />
-              Stop
+              {t.scalesView.stop}
             </>
           ) : (
             <>
               <Play className="w-3 h-3 fill-current" />
-              Play
+              {t.scalesView.play}
             </>
           )}
         </button>
@@ -187,9 +187,11 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
                   x={x}
                   y={topPad + gridH + 16}
                   textAnchor="middle"
-                  className="font-mono text-[10px] fill-[#6B7280]"
+                  className={`font-mono fill-[#6B7280] ${
+                    notation === 'solfege' ? 'text-[8.5px]' : 'text-[10px]'
+                  }`}
                 >
-                  {getNoteName(openPc, preferFlats)}
+                  {getNoteName(openPc, preferFlats, notation)}
                 </text>
               </g>
             );
@@ -228,7 +230,7 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
 
               const label =
                 displayMode === 'notes'
-                  ? getNoteName(pc, preferFlats)
+                  ? getNoteName(pc, preferFlats, notation)
                   : displayMode === 'intervals'
                     ? INTERVAL_LABELS[info.interval]
                     : String(info.degree);
@@ -279,7 +281,10 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
                     y={y + 3.4}
                     textAnchor="middle"
                     fill={textFill}
-                    className="font-mono text-[9.5px] font-bold pointer-events-none"
+                    style={{
+                      fontSize: label.length >= 4 ? '7px' : label.length === 3 ? '8px' : '9.5px',
+                    }}
+                    className="font-mono font-bold pointer-events-none"
                   >
                     {label}
                   </text>
@@ -296,7 +301,7 @@ const MiniScaleBox: React.FC<MiniScaleBoxProps> = ({
         onClick={() => onFocusNeck(position.id)}
         className="w-full py-2 px-3 rounded-lg bg-[#111214] border border-[#262932] hover:border-amber-500/50 text-xs font-medium text-[#D1D5DB] hover:text-amber-300 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
       >
-        Open on Full Neck
+        {t.scalesView.openOnFullNeck}
         <ArrowUpRight className="w-3.5 h-3.5" />
       </button>
     </div>
@@ -313,6 +318,8 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
   onDisplayModeChange,
   onFocusPositionOnNeck,
 }) => {
+  const { t, notation } = useI18n();
+  const keyNames = getKeyDisplayNames(notation);
   const [playingBoxId, setPlayingBoxId] = useState<number | null>(null);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
 
@@ -321,7 +328,8 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
     [rootPitchClass, scale.id]
   );
 
-  const rootName = getNoteName(rootPitchClass, preferFlats);
+  const rootName = getNoteName(rootPitchClass, preferFlats, notation);
+  const localizedScaleName = t.scaleNames[scale.id] ?? scale.name;
 
   const positions = useMemo(
     () => getScalePositions(rootPitchClass, scale, tuning),
@@ -329,8 +337,8 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
   );
 
   const diatonicChords = useMemo(
-    () => getDiatonicChordsForScale(rootPitchClass, scale),
-    [rootPitchClass, scale]
+    () => getDiatonicChordsForScale(rootPitchClass, scale, notation),
+    [rootPitchClass, scale, notation]
   );
 
   const stepFormula = useMemo(
@@ -341,13 +349,13 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
   const scaleNotesList = useMemo(
     () =>
       scale.intervals.map((intVal, idx) => ({
-        note: getNoteName((rootPitchClass + intVal) % 12, preferFlats),
+        note: getNoteName((rootPitchClass + intVal) % 12, preferFlats, notation),
         interval: INTERVAL_LABELS[intVal],
         degree: idx + 1,
         isRoot: intVal === 0,
         isCharacteristic: scale.characteristicInterval === intVal,
       })),
-    [rootPitchClass, scale, preferFlats]
+    [rootPitchClass, scale, preferFlats, notation]
   );
 
   const handlePlayPositionBox = (pos: ScalePositionWindow) => {
@@ -402,12 +410,12 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white font-display">
-              {rootName} {scale.name} Diagrams
+              {t.scalesView.diagramsTitle(rootName, localizedScaleName)}
             </h1>
             <div className="flex flex-wrap items-center gap-2 text-xs text-[#9CA3AF]">
-              <span>{scale.category}</span>
+              <span>{t.scaleCategories[scale.category] ?? scale.category}</span>
               <span aria-hidden="true">·</span>
-              <span>{scale.intervals.length} notes</span>
+              <span>{t.scalesView.notesCount(scale.intervals.length)}</span>
               <span aria-hidden="true">·</span>
               <span className="font-mono text-[#D1D5DB]">{stepFormula}</span>
               <span aria-hidden="true">·</span>
@@ -417,16 +425,20 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             <select
-              aria-label="Choose scale"
+              aria-label={t.toolbar.scaleMode}
               value={scale.id}
               onChange={(e) => onScaleChange(e.target.value)}
               className="h-10 px-3.5 rounded-lg bg-[#111214] border border-[#2A2D36] text-sm font-medium text-[#F3F4F6] focus:outline-none focus:border-amber-500"
             >
               {SCALE_CATEGORIES.map((cat) => (
-                <optgroup key={cat} label={cat} className="bg-[#181A1F]">
+                <optgroup
+                  key={cat}
+                  label={t.scaleCategories[cat] ?? cat}
+                  className="bg-[#181A1F]"
+                >
                   {SCALES.filter((s) => s.category === cat).map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name}
+                      {t.scaleNames[s.id] ?? s.name}
                     </option>
                   ))}
                 </optgroup>
@@ -436,9 +448,9 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
             <div className="inline-flex items-center gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
               {(
                 [
-                  { id: 'notes', label: 'Notes' },
-                  { id: 'intervals', label: 'Intervals' },
-                  { id: 'degrees', label: 'Degrees' },
+                  { id: 'notes', label: t.toolbar.notes },
+                  { id: 'intervals', label: t.toolbar.intervals },
+                  { id: 'degrees', label: t.toolbar.degrees },
                 ] as const
               ).map((opt) => (
                 <button
@@ -460,12 +472,14 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
 
         {/* 12-Key Strip */}
         <div className="grid grid-cols-6 sm:grid-cols-12 gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
-          {KEY_DISPLAY_NAMES.map((k, idx) => (
+          {keyNames.map((k, idx) => (
             <button
-              key={k}
+              key={`${idx}-${k}`}
               type="button"
               onClick={() => onRootChange(idx)}
-              className={`h-9 rounded-md font-mono text-xs font-semibold transition-colors ${
+              className={`h-9 rounded-md font-mono font-semibold transition-colors ${
+                notation === 'solfege' ? 'text-[11px]' : 'text-xs'
+              } ${
                 idx === rootPitchClass
                   ? 'bg-amber-500 text-[#111214]'
                   : 'text-[#D1D5DB] hover:bg-[#22252C] hover:text-white'
@@ -480,7 +494,7 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2 border-t border-[#242730]">
           <div className="lg:col-span-7 space-y-2">
             <div className="text-xs font-medium text-[#9CA3AF]">
-              Scale Notes &amp; Intervals
+              {t.scalesView.scaleNotesIntervals}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {scaleNotesList.map((item) => (
@@ -505,13 +519,16 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
 
           <div className="lg:col-span-5 space-y-1.5">
             <div className="text-xs font-medium text-[#9CA3AF]">
-              Improvisation Phrasing Note
+              {t.scalesView.improvisationNote}
             </div>
             <p className="text-sm text-[#D1D5DB] leading-relaxed">
-              {scale.soloTip}
+              {t.scaleTips[scale.id] ?? scale.soloTip}
             </p>
             <div className="text-xs text-[#9CA3AF] pt-0.5">
-              Character: <span className="text-[#E5E7EB]">{scale.mood}</span>
+              {t.scalesView.character}{' '}
+              <span className="text-[#E5E7EB]">
+                {t.scaleMoods[scale.id] ?? scale.mood}
+              </span>
             </div>
           </div>
         </div>
@@ -521,10 +538,10 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
       <div className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold text-white font-display">
-            Five Connected Neck Positions
+            {t.scalesView.fivePositionsTitle}
           </h2>
           <p className="text-xs text-[#9CA3AF]">
-            Click any dot inside a diagram to hear its pitch, or open a box directly on the full neck.
+            {t.scalesView.fivePositionsHint}
           </p>
         </div>
 
@@ -551,10 +568,10 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
       <div className="bg-[#181A1F] border border-[#272A32] rounded-xl p-5 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-base font-semibold text-white font-display">
-            Harmonized Chords in {rootName} {scale.name}
+            {t.scalesView.harmonizedChordsTitle(rootName, localizedScaleName)}
           </h2>
           <span className="text-xs text-[#9CA3AF]">
-            Click any chord to audition its voicing
+            {t.scalesView.clickAuditionHint}
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
@@ -567,13 +584,15 @@ export const ScaleDiagramsView: React.FC<ScaleDiagramsViewProps> = ({
             >
               <div className="flex items-center justify-between text-xs font-mono text-[#9CA3AF]">
                 <span>{ch.degreeNumeral}</span>
-                <span>{ch.role}</span>
+                <span>{t.scalesView.roles[ch.role]}</span>
               </div>
               <div className="text-base font-semibold text-[#F3F4F6] group-hover:text-amber-300 mt-1">
                 {ch.name}
               </div>
               <div className="text-[11px] font-mono text-[#6B7280] mt-1">
-                {ch.pitchClasses.map((pc) => getNoteName(pc, preferFlats)).join(' · ')}
+                {ch.pitchClasses
+                  .map((pc) => getNoteName(pc, preferFlats, notation))
+                  .join(' · ')}
               </div>
             </button>
           ))}

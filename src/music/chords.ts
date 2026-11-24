@@ -1,4 +1,5 @@
 import { getNoteName } from './theory';
+import type { NoteNotation } from '../i18n/translations';
 
 export type ChordQualityId =
   | 'major'
@@ -613,8 +614,9 @@ export function getChordVoicings(rootPitchClass: number, qualityId: ChordQuality
 export function getChordDisplayName(
   rootPitchClass: number,
   qualityId: ChordQualityId,
-  preferFlats = false
+  preferFlats = false,
+  notation: NoteNotation = 'letters'
 ): string {
   const spec = CHORD_QUALITIES.find((q) => q.id === qualityId) ?? CHORD_QUALITIES[0];
-  return `${getNoteName(rootPitchClass, preferFlats)}${spec.suffix}`;
+  return `${getNoteName(rootPitchClass, preferFlats, notation)}${spec.suffix}`;
 }

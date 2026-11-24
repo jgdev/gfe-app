@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   GuitarTuning,
-  INTERVAL_FULL_NAMES,
   INTERVAL_LABELS,
   ScaleDefinition,
   ScalePositionWindow,
@@ -11,6 +10,7 @@ import {
   shouldUseFlats,
 } from '../music/theory';
 import { guitarSynth } from '../audio/guitarSynth';
+import { useI18n } from '../i18n/I18nContext';
 
 export type FretboardWood = 'rosewood' | 'ebony' | 'maple';
 export type NoteDisplayMode = 'notes' | 'intervals' | 'degrees';
@@ -46,6 +46,11 @@ interface FretboardCanvasProps {
   targetChordRootPc?: number | null;
   activeMidiHighlight?: number | null;
   chordVoicingFrets?: [number, number, number, number, number, number] | null;
+  focusedNoteId?: string | null;
+  externalPluckPulse?: { id: string; tuningIdx: number; nonce: number } | null;
+  keyHintMap?: Map<string, string>;
+  showKeyHints?: boolean;
+  onFocusNote?: (noteId: string) => void;
   onInspectNote?: (info: ActiveNoteInspect) => void;
 }
 
@@ -125,10 +130,34 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
   targetChordRootPc = null,
   activeMidiHighlight = null,
   chordVoicingFrets = null,
+  focusedNoteId = null,
+  externalPluckPulse = null,
+  keyHintMap,
+  showKeyHints = false,
+  onFocusNote,
   onInspectNote,
 }) => {
+  const { notation, t } = useI18n();
   const [vibratingString, setVibratingString] = useState<number | null>(null);
   const [recentPluckKey, setRecentPluckKey] = useState<string | null>(null);
+
+  // Sync visual string pluck & acoustic ripple when triggered from keyboard arrows / QWERTY
+  useEffect(() => {
+    if (!externalPluckPulse) return;
+    const visualRow = 5 - externalPluckPulse.tuningIdx;
+    setVibratingString(null);
+    const rafId = window.requestAnimationFrame(() => {
+      setVibratingString(visualRow);
+    });
+    setRecentPluckKey(externalPluckPulse.id);
+    const timeoutId = window.setTimeout(() => {
+      setRecentPluckKey((prev) => (prev === externalPluckPulse.id ? null : prev));
+    }, 340);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [externalPluckPulse]);
 
   const preferFlats = useMemo(
     () => shouldUseFlats(rootPitchClass, scale.id),
@@ -245,16 +274,20 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
       setRecentPluckKey((prev) => (prev === key ? null : prev));
     }, 340);
 
+    if (scaleInfo) {
+      onFocusNote?.(key);
+    }
+
     onInspectNote?.({
       stringNumber: 6 - tuningIdx,
       fret,
       midi,
-      noteName: getNoteName(pc, preferFlats),
-      noteWithOctave: midiToNoteWithOctave(midi, preferFlats),
+      noteName: getNoteName(pc, preferFlats, notation),
+      noteWithOctave: midiToNoteWithOctave(midi, preferFlats, notation),
       frequency: midiToFrequency(midi),
       intervalSemitones,
       intervalShort: INTERVAL_LABELS[intervalSemitones],
-      intervalFull: INTERVAL_FULL_NAMES[intervalSemitones],
+      intervalFull: t.intervalsFull[intervalSemitones] ?? '',
       inScale: Boolean(scaleInfo),
       isRoot: pc === rootPitchClass,
       isTargetChordTone: effectiveTargetSet.has(pc),
@@ -276,8 +309,9 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
         role="img"
         aria-label={`Interactive ${fretCount}-fret guitar neck in ${tuning.shortLabel} showing ${getNoteName(
           rootPitchClass,
-          preferFlats
-        )} ${scale.name}`}
+          preferFlats,
+          notation
+        )} ${t.scaleNames[scale.id] ?? scale.name}`}
       >
         <defs>
           <linearGradient id={`wood-grad-${wood}`} x1="0" y1="0" x2="0" y2="1">
@@ -430,7 +464,7 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
         {[5, 4, 3, 2, 1, 0].map((tuningIdx, visualRow) => {
           const y = getStringY(visualRow);
           const openMidi = tuning.midiNotes[tuningIdx];
-          const openName = getNoteName(openMidi % 12, preferFlats);
+          const openName = getNoteName(openMidi % 12, preferFlats, notation);
           const labelX = leftHanded ? svgWidth - 10 : 18;
           return (
             <text
@@ -438,7 +472,9 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
               x={labelX}
               y={y + 4}
               textAnchor="middle"
-              className="font-mono text-[11px] font-semibold fill-[#9CA3AF]"
+              className={`font-mono font-semibold fill-[#9CA3AF] ${
+                openName.length > 2 ? 'text-[9.5px]' : 'text-[11px]'
+              }`}
             >
               {openName}
             </text>
@@ -515,20 +551,29 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
             const isTargetTone = effectiveTargetSet.has(pc);
             const isTargetRoot = targetChordRootPc !== null && pc === targetChordRootPc;
             const isCharacteristic = characteristicPc !== null && pc === characteristicPc;
+            const noteId = `${tuningIdx}_${fret}`;
             const isPlaybackActive = activeMidiHighlight === midi;
-            const isRecentPluck = recentPluckKey === `${tuningIdx}_${fret}`;
+            const isRecentPluck = recentPluckKey === noteId;
+            const isFocusedNote = focusedNoteId === noteId;
+            const keyHint = showKeyHints ? keyHintMap?.get(noteId) : undefined;
             const inPosition = isFretInPosition(fret);
 
             const cx = getNoteX(fret);
 
             // Compute displayed label inside the marker
-            let label = getNoteName(pc, preferFlats);
+            let label = getNoteName(pc, preferFlats, notation);
             if (displayMode === 'intervals') {
               const interval = (pc - rootPitchClass + 12) % 12;
               label = INTERVAL_LABELS[interval];
             } else if (displayMode === 'degrees') {
               label = scaleInfo ? String(scaleInfo.degreeIndex) : '·';
             }
+            const dynamicFontSize =
+              label.length >= 4
+                ? markerFontSize - 2.6
+                : label.length === 3
+                  ? markerFontSize - 1.6
+                  : markerFontSize;
 
             // Invisible hit target so user can also click non-scale notes to audition any fret
             if (!isInScale && !isVoicedChordNote) {
@@ -625,6 +670,11 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
               opacity = 0.56;
             }
 
+            // Keep focused note at full opacity even if outside other filters
+            if (isFocusedNote) {
+              opacity = 1;
+            }
+
             return (
               <g
                 key={`note-${tuningIdx}-${fret}`}
@@ -632,12 +682,36 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
                 className="cursor-pointer group"
                 style={{ opacity }}
               >
+                {/* Persistent Keyboard / Click Note Focus State Halo */}
+                {isFocusedNote && (
+                  <>
+                    <circle
+                      cx={cx}
+                      cy={y}
+                      r={markerRadius + 5.5}
+                      fill="none"
+                      stroke="#FEF08A"
+                      strokeWidth={2.2}
+                      opacity={0.95}
+                    />
+                    <circle
+                      cx={cx}
+                      cy={y}
+                      r={markerRadius + 2.4}
+                      fill="none"
+                      stroke="#FFFFFF"
+                      strokeWidth={1.4}
+                      opacity={0.9}
+                    />
+                  </>
+                )}
+
                 {/* Acoustic ring pulse when playing or plucked */}
                 {(isPlaybackActive || isRecentPluck) && (
                   <circle
                     cx={cx}
                     cy={y}
-                    r={markerRadius + 6}
+                    r={markerRadius + 7.5}
                     fill="none"
                     stroke="#FBBF24"
                     strokeWidth={2.5}
@@ -646,7 +720,7 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
                 )}
 
                 {/* Dual-coded outer ring for Roots & Chord Voicing Anchors (not hue-only) */}
-                {showOuterRing && (
+                {showOuterRing && !isFocusedNote && (
                   <circle
                     cx={cx}
                     cy={y}
@@ -662,23 +736,55 @@ export const FretboardCanvas: React.FC<FretboardCanvasProps> = ({
                 <circle
                   cx={cx}
                   cy={y}
-                  r={isPlaybackActive || isRecentPluck ? markerRadius + 1.5 : markerRadius}
+                  r={
+                    isPlaybackActive || isRecentPluck || isFocusedNote
+                      ? markerRadius + 1.4
+                      : markerRadius
+                  }
                   fill={isPlaybackActive ? '#FDE047' : fill}
-                  stroke={isPlaybackActive ? '#FFFFFF' : stroke}
-                  strokeWidth={strokeWidth}
+                  stroke={
+                    isPlaybackActive || isFocusedNote ? '#FFFFFF' : stroke
+                  }
+                  strokeWidth={isFocusedNote ? 2.4 : strokeWidth}
                 />
 
                 {/* Note / Interval / Degree Text */}
                 <text
                   x={cx}
-                  y={y + 3.8}
+                  y={y + 3.6}
                   textAnchor="middle"
                   fill={isPlaybackActive ? '#111214' : textColor}
-                  style={{ fontSize: `${markerFontSize}px` }}
+                  style={{ fontSize: `${dynamicFontSize}px` }}
                   className="font-mono font-bold pointer-events-none select-none"
                 >
                   {label}
                 </text>
+
+                {/* Miniature QWERTY Key-Cap Hint Badge */}
+                {keyHint && (
+                  <g className="pointer-events-none select-none">
+                    <rect
+                      x={cx + markerRadius - 5.5}
+                      y={y - markerRadius - 6.5}
+                      width={13}
+                      height={12}
+                      rx={3}
+                      fill={isFocusedNote ? '#F59E0B' : '#111214'}
+                      stroke={isFocusedNote ? '#FEF3C7' : '#6B7280'}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={cx + markerRadius + 1}
+                      y={y - markerRadius + 2.5}
+                      textAnchor="middle"
+                      fill={isFocusedNote ? '#111214' : '#F3F4F6'}
+                      style={{ fontSize: '8px' }}
+                      className="font-mono font-bold"
+                    >
+                      {keyHint}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           });

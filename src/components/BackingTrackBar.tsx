@@ -9,6 +9,7 @@ import {
   shouldUseFlats,
 } from '../music/theory';
 import { guitarSynth } from '../audio/guitarSynth';
+import { useI18n } from '../i18n/I18nContext';
 
 interface BackingTrackBarProps {
   rootPitchClass: number;
@@ -25,14 +26,16 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
   onSelectSoloChord,
   onActiveLoopChordChange,
 }) => {
+  const { t, notation } = useI18n();
+
   const preferFlats = useMemo(
     () => shouldUseFlats(rootPitchClass, scale.id),
     [rootPitchClass, scale.id]
   );
 
   const diatonicChords = useMemo(
-    () => getDiatonicChordsForScale(rootPitchClass, scale),
-    [rootPitchClass, scale]
+    () => getDiatonicChordsForScale(rootPitchClass, scale, notation),
+    [rootPitchClass, scale, notation]
   );
 
   const progressions = useMemo(
@@ -74,7 +77,7 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
 
     activeProgression.chords.forEach((ch) => {
       const chordRootPc = (rootPitchClass + ch.offset) % 12;
-      const noteName = getNoteName(chordRootPc, preferFlats);
+      const noteName = getNoteName(chordRootPc, preferFlats, notation);
       const pitchClasses = ch.intervals.map((i) => (chordRootPc + i) % 12);
       // Warm mid-register guitar voicing around C3..G4 (MIDI 48..67)
       const bassMidi = 40 + ((chordRootPc - 4 + 12) % 12);
@@ -94,7 +97,7 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
       }
     });
     return bars;
-  }, [activeProgression, rootPitchClass, preferFlats]);
+  }, [activeProgression, rootPitchClass, preferFlats, notation]);
 
   // Cleanup timer on unmount or stop
   useEffect(() => {
@@ -179,12 +182,12 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-center">
         {/* Left: Solo Over Single Chord (Live Chord-Tone Target Switcher) */}
         <div className="xl:col-span-6 space-y-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-[#F3F4F6]">
-              Solo Over Chord Tones
+              {t.backing.soloOverChordTones}
             </h3>
             <span className="text-xs text-[#9CA3AF]">
-              Click a chord to highlight its landing notes across the neck
+              {t.backing.clickChordHint}
             </span>
           </div>
 
@@ -201,7 +204,7 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
                   : 'bg-[#111214] border-[#252830] text-[#9CA3AF] hover:text-white'
               }`}
             >
-              All Scale Notes
+              {t.backing.allScaleNotes}
             </button>
             {diatonicChords.map((chord) => {
               const isSelected =
@@ -235,13 +238,13 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
             <div className="flex items-center gap-2">
               <Volume2 className="w-4 h-4 text-amber-400 shrink-0" />
               <h3 className="text-sm font-semibold text-[#F3F4F6]">
-                Jam Backing Loop
+                {t.backing.jamBackingLoop}
               </h3>
             </div>
 
             <div className="flex items-center gap-3 text-xs text-[#9CA3AF] font-mono tabular-nums">
               <label htmlFor="bpm-slider" className="whitespace-nowrap">
-                Tempo: <span className="text-[#F3F4F6] font-semibold">{bpm} BPM</span>
+                {t.backing.tempo}: <span className="text-[#F3F4F6] font-semibold">{bpm} BPM</span>
               </label>
               <input
                 id="bpm-slider"
@@ -258,7 +261,7 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
 
           <div className="flex flex-wrap items-center gap-2.5">
             <select
-              aria-label="Backing progression"
+              aria-label={t.backing.jamBackingLoop}
               value={selectedProgId}
               onChange={(e) => {
                 setSelectedProgId(e.target.value);
@@ -285,12 +288,12 @@ export const BackingTrackBar: React.FC<BackingTrackBarProps> = ({
               {isPlaying ? (
                 <>
                   <Square className="w-3.5 h-3.5 fill-current" />
-                  Stop Loop
+                  {t.backing.stopLoop}
                 </>
               ) : (
                 <>
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  Play Groove
+                  {t.backing.playGroove}
                 </>
               )}
             </button>

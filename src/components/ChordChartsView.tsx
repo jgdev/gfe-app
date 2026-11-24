@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Music2, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, Check, Music2, Plus, Sparkles } from 'lucide-react';
 import {
   CHORD_QUALITIES,
   ChordQualityId,
@@ -9,13 +9,22 @@ import {
 } from '../music/chords';
 import {
   GuitarTuning,
-  KEY_DISPLAY_NAMES,
+  getKeyDisplayNames,
   getNoteName,
   getScaleById,
   getTuningById,
 } from '../music/theory';
 import { guitarSynth } from '../audio/guitarSynth';
 import { FretboardCanvas, FretboardWood } from './FretboardCanvas';
+import {
+  ChordGroup,
+  ChordGroupsPanel,
+  SavedChordStep,
+  buildStarterChordGroup,
+  loadChordGroups,
+  saveChordGroups,
+} from './ChordGroupsPanel';
+import { useI18n } from '../i18n/I18nContext';
 
 interface ChordChartsViewProps {
   initialRootPc: number;
@@ -43,6 +52,7 @@ const ChordBoxSvg: React.FC<ChordBoxSvgProps> = ({
   onSelect,
   onPluckString,
 }) => {
+  const { t, notation } = useI18n();
   const width = 204;
   const height = 224;
   const padLeft = 34;
@@ -79,7 +89,7 @@ const ChordBoxSvg: React.FC<ChordBoxSvgProps> = ({
           {voicing.label}
         </span>
         <span className="font-mono text-xs text-[#9CA3AF] tabular-nums shrink-0">
-          {isNut ? 'Open' : `${voicing.baseFret}fr`}
+          {isNut ? t.chordsView.open : `${voicing.baseFret}fr`}
         </span>
       </div>
 
@@ -172,7 +182,9 @@ const ChordBoxSvg: React.FC<ChordBoxSvgProps> = ({
                 x={x}
                 y={padTop + gridH + 17}
                 textAnchor="middle"
-                className={`font-mono text-[10px] font-semibold ${
+                className={`font-mono font-semibold ${
+                  notation === 'solfege' ? 'text-[9px]' : 'text-[10px]'
+                } ${
                   isMuted
                     ? 'fill-[#4B5563]'
                     : notePc === rootPitchClass
@@ -180,7 +192,7 @@ const ChordBoxSvg: React.FC<ChordBoxSvgProps> = ({
                       : 'fill-[#9CA3AF]'
                 }`}
               >
-                {isMuted ? '–' : getNoteName(notePc, false)}
+                {isMuted ? '–' : getNoteName(notePc, false, notation)}
               </text>
             </g>
           );
@@ -256,10 +268,25 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
   leftHanded,
   onImproviseOverScale,
 }) => {
+  const { t, notation } = useI18n();
+  const keyNames = getKeyDisplayNames(notation);
+
   const [chordRootPc, setChordRootPc] = useState<number>(initialRootPc);
   const [qualityId, setQualityId] = useState<ChordQualityId>('minor');
   const [selectedVoicingIdx, setSelectedVoicingIdx] = useState<number>(0);
   const [activeStringIdx, setActiveStringIdx] = useState<number | null>(null);
+  const [justAdded, setJustAdded] = useState<boolean>(false);
+
+  // Saved Chord Groups state (persisted in localStorage)
+  const [groups, setGroups] = useState<ChordGroup[]>(() => loadChordGroups());
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(
+    () => loadChordGroups()[0]?.id ?? null
+  );
+  const [playingGroupStep, setPlayingGroupStep] = useState<SavedChordStep | null>(null);
+
+  useEffect(() => {
+    saveChordGroups(groups);
+  }, [groups]);
 
   const qualitySpec = useMemo(
     () => CHORD_QUALITIES.find((q) => q.id === qualityId) ?? CHORD_QUALITIES[0],
@@ -274,7 +301,7 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
   const safeVoicingIdx = Math.min(selectedVoicingIdx, Math.max(0, voicings.length - 1));
   const activeVoicing = voicings[safeVoicingIdx] ?? voicings[0];
 
-  const chordDisplayName = getChordDisplayName(chordRootPc, qualityId, false);
+  const chordDisplayName = getChordDisplayName(chordRootPc, qualityId, false, notation);
   const chordTonePitchClasses = useMemo(
     () => qualitySpec.intervals.map((i) => (chordRootPc + i) % 12),
     [chordRootPc, qualitySpec]
@@ -284,6 +311,163 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
     () => getScaleById(qualitySpec.recommendedScaleIds[0] ?? 'minor_pentatonic'),
     [qualitySpec]
   );
+
+  // Sync full-neck chord projection with currently playing Chord Group step if active
+  const neckChordRootPc = playingGroupStep ? playingGroupStep.rootPitchClass : chordRootPc;
+  const neckQualitySpec = useMemo(() => {
+    if (!playingGroupStep) return qualitySpec;
+    return CHORD_QUALITIES.find((q) => q.id === playingGroupStep.qualityId) ?? qualitySpec;
+  }, [playingGroupStep, qualitySpec]);
+  const neckDisplayName = playingGroupStep
+    ? getChordDisplayName(
+        playingGroupStep.rootPitchClass,
+        playingGroupStep.qualityId,
+        false,
+        notation
+      )
+    : chordDisplayName;
+  const neckVoicingLabel = playingGroupStep
+    ? playingGroupStep.voicingLabel
+    : activeVoicing?.label ?? '';
+  const neckVoicingFrets = playingGroupStep
+    ? playingGroupStep.frets
+    : activeVoicing?.frets ?? null;
+  const neckChordTonePcs = useMemo(
+    () => neckQualitySpec.intervals.map((i) => (neckChordRootPc + i) % 12),
+    [neckChordRootPc, neckQualitySpec]
+  );
+  const neckPrimaryScale = useMemo(
+    () => getScaleById(neckQualitySpec.recommendedScaleIds[0] ?? 'minor_pentatonic'),
+    [neckQualitySpec]
+  );
+
+  const handleCreateGroup = (name: string) => {
+    const created: ChordGroup = {
+      id: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      bpm: 96,
+      pattern: 'groove',
+      steps: [],
+    };
+    setGroups((prev) => [...prev, created]);
+    setActiveGroupId(created.id);
+  };
+
+  const handleRenameGroup = (id: string, name: string) => {
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, name } : g)));
+  };
+
+  const handleDeleteGroup = (id: string) => {
+    setGroups((prev) => {
+      const next = prev.filter((g) => g.id !== id);
+      setActiveGroupId((curr) => (curr === id ? (next[0]?.id ?? null) : curr));
+      return next;
+    });
+  };
+
+  const handleLoadStarterGroup = () => {
+    const starter = buildStarterChordGroup(t.chordsView.starterGroupName);
+    setGroups((prev) => [...prev, starter]);
+    setActiveGroupId(starter.id);
+  };
+
+  const handleAddCurrentChordToGroup = () => {
+    if (!activeVoicing) return;
+    const newStep: SavedChordStep = {
+      id: `step_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      rootPitchClass: chordRootPc,
+      qualityId,
+      voicingId: activeVoicing.id,
+      voicingLabel: activeVoicing.label,
+      frets: [...activeVoicing.frets] as [number, number, number, number, number, number],
+      bars: 1,
+    };
+
+    setGroups((prev) => {
+      if (prev.length === 0) {
+        const autoGroup: ChordGroup = {
+          id: `grp_${Date.now()}`,
+          name: t.chordsView.defaultGroupName,
+          bpm: 96,
+          pattern: 'groove',
+          steps: [newStep],
+        };
+        setActiveGroupId(autoGroup.id);
+        return [autoGroup];
+      }
+      const targetId = prev.some((g) => g.id === activeGroupId)
+        ? activeGroupId
+        : prev[0].id;
+      return prev.map((g) =>
+        g.id === targetId ? { ...g, steps: [...g.steps, newStep] } : g
+      );
+    });
+
+    setJustAdded(true);
+    window.setTimeout(() => setJustAdded(false), 1100);
+  };
+
+  const handleUpdateGroupSettings = (
+    id: string,
+    patch: Partial<Pick<ChordGroup, 'bpm' | 'pattern'>>
+  ) => {
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+  };
+
+  const handleCycleStepBars = (groupId: string, stepId: string) => {
+    const nextBars = (b: 1 | 2 | 4): 1 | 2 | 4 => (b === 1 ? 2 : b === 2 ? 4 : 1);
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? {
+              ...g,
+              steps: g.steps.map((s) =>
+                s.id === stepId ? { ...s, bars: nextBars(s.bars) } : s
+              ),
+            }
+          : g
+      )
+    );
+  };
+
+  const handleMoveStep = (groupId: string, stepId: string, delta: -1 | 1) => {
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const idx = g.steps.findIndex((s) => s.id === stepId);
+        const nextIdx = idx + delta;
+        if (idx === -1 || nextIdx < 0 || nextIdx >= g.steps.length) return g;
+        const copy = [...g.steps];
+        const [moved] = copy.splice(idx, 1);
+        copy.splice(nextIdx, 0, moved);
+        return { ...g, steps: copy };
+      })
+    );
+  };
+
+  const handleRemoveStep = (groupId: string, stepId: string) => {
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, steps: g.steps.filter((s) => s.id !== stepId) }
+          : g
+      )
+    );
+  };
+
+  const handlePreviewStep = (step: SavedChordStep) => {
+    setChordRootPc(step.rootPitchClass);
+    setQualityId(step.qualityId);
+    const matchingVoicings = getChordVoicings(step.rootPitchClass, step.qualityId);
+    const foundIdx = matchingVoicings.findIndex(
+      (v) => v.id === step.voicingId || v.frets.join(',') === step.frets.join(',')
+    );
+    setSelectedVoicingIdx(foundIdx >= 0 ? foundIdx : 0);
+  };
+
+  const handleActivePlayingStepChange = useCallback((step: SavedChordStep | null) => {
+    setPlayingGroupStep(step);
+  }, []);
 
   const handleStrum = (direction: 'down' | 'up' | 'arpeggio') => {
     if (!activeVoicing) return;
@@ -325,22 +509,24 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white font-display">
-              {chordDisplayName} Chord Charts
+              {t.chordsView.chordChartsTitle(chordDisplayName)}
             </h1>
             <div className="flex flex-wrap items-center gap-2 text-xs text-[#9CA3AF] mt-1">
-              <span>{qualitySpec.label}</span>
+              <span>{t.chordQualities[qualitySpec.id] ?? qualitySpec.label}</span>
               <span aria-hidden="true">·</span>
               <span className="font-mono text-[#D1D5DB]">{qualitySpec.formula}</span>
               <span aria-hidden="true">·</span>
               <span className="font-mono text-[#D1D5DB]">
-                {chordTonePitchClasses.map((pc) => getNoteName(pc, false)).join(' – ')}
+                {chordTonePitchClasses
+                  .map((pc) => getNoteName(pc, false, notation))
+                  .join(' – ')}
               </span>
               <span aria-hidden="true">·</span>
-              <span>{voicings.length} playable voicings</span>
+              <span>{t.chordsView.playableVoicings(voicings.length)}</span>
             </div>
           </div>
 
-          {/* Interactive Playback Actions */}
+          {/* Interactive Playback & Save-to-Group Actions */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -348,7 +534,7 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-[#111214] hover:bg-amber-400 text-xs font-semibold transition-colors whitespace-nowrap"
             >
               <ArrowDown className="w-3.5 h-3.5" />
-              Strum Down
+              {t.chordsView.strumDown}
             </button>
             <button
               type="button"
@@ -356,7 +542,7 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#111214] border border-[#2C303A] text-[#E5E7EB] hover:border-amber-500/50 text-xs font-medium transition-colors whitespace-nowrap"
             >
               <ArrowUp className="w-3.5 h-3.5" />
-              Strum Up
+              {t.chordsView.strumUp}
             </button>
             <button
               type="button"
@@ -364,22 +550,45 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#111214] border border-[#2C303A] text-[#E5E7EB] hover:border-amber-500/50 text-xs font-medium transition-colors whitespace-nowrap"
             >
               <Music2 className="w-3.5 h-3.5" />
-              Arpeggiate
+              {t.chordsView.arpeggiate}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddCurrentChordToGroup}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
+                justAdded
+                  ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300'
+                  : 'bg-[#111214] border-sky-400/45 text-sky-300 hover:bg-sky-500/15'
+              }`}
+            >
+              {justAdded ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  {t.chordsView.addedFeedback}
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5" />
+                  {t.chordsView.addToGroup}
+                </>
+              )}
             </button>
           </div>
         </div>
 
         {/* Root Key Selector */}
         <div className="grid grid-cols-6 sm:grid-cols-12 gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
-          {KEY_DISPLAY_NAMES.map((keyName, idx) => (
+          {keyNames.map((keyName, idx) => (
             <button
-              key={keyName}
+              key={`${idx}-${keyName}`}
               type="button"
               onClick={() => {
                 setChordRootPc(idx);
                 setSelectedVoicingIdx(0);
               }}
-              className={`h-9 rounded-md font-mono text-xs font-semibold transition-colors ${
+              className={`h-9 rounded-md font-mono font-semibold transition-colors ${
+                notation === 'solfege' ? 'text-[11px]' : 'text-xs'
+              } ${
                 idx === chordRootPc
                   ? 'bg-amber-500 text-[#111214]'
                   : 'text-[#D1D5DB] hover:bg-[#22252C] hover:text-white'
@@ -406,7 +615,7 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
                   : 'bg-[#111214] border-[#252830] text-[#9CA3AF] hover:text-white'
               }`}
             >
-              {q.label}
+              {t.chordQualities[q.id] ?? q.label}
             </button>
           ))}
         </div>
@@ -433,31 +642,56 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
         ))}
       </div>
 
+      {/* Saved Chord Groups Composer & Groove-Style Player */}
+      <ChordGroupsPanel
+        groups={groups}
+        activeGroupId={activeGroupId}
+        onSelectGroupId={setActiveGroupId}
+        onCreateGroup={handleCreateGroup}
+        onRenameGroup={handleRenameGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onLoadStarterGroup={handleLoadStarterGroup}
+        onAddCurrentChord={handleAddCurrentChordToGroup}
+        onUpdateGroupSettings={handleUpdateGroupSettings}
+        onCycleStepBars={handleCycleStepBars}
+        onMoveStep={handleMoveStep}
+        onRemoveStep={handleRemoveStep}
+        onPreviewStep={handlePreviewStep}
+        onActivePlayingStepChange={handleActivePlayingStepChange}
+        currentChordName={chordDisplayName}
+      />
+
       {/* Full-Neck Chord Voicing Projection + Matching Solo Scales */}
-      {activeVoicing && (
+      {neckVoicingFrets && (
         <div className="bg-[#181A1F] border border-[#272A32] rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-white font-display">
-                {chordDisplayName} ({activeVoicing.label}) on the Neck
+                {t.chordsView.onTheNeckTitle(neckDisplayName, neckVoicingLabel)}
               </h2>
               <p className="text-xs text-[#9CA3AF] mt-0.5">
-                Bright highlighted notes show your chord fingers; subtle background notes map the compatible {getNoteName(chordRootPc)} {primaryScale.name} scale for soloing.
+                {t.chordsView.onTheNeckHint(
+                  getNoteName(neckChordRootPc, false, notation),
+                  t.scaleNames[neckPrimaryScale.id] ?? neckPrimaryScale.name
+                )}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {qualitySpec.recommendedScaleIds.map((scaleId) => {
+              {neckQualitySpec.recommendedScaleIds.map((scaleId) => {
                 const s = getScaleById(scaleId);
                 return (
                   <button
                     key={scaleId}
                     type="button"
-                    onClick={() => onImproviseOverScale(chordRootPc, scaleId)}
+                    onClick={() => onImproviseOverScale(neckChordRootPc, scaleId)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#111214] border border-amber-500/40 text-amber-300 hover:bg-amber-500/15 text-xs font-medium transition-colors whitespace-nowrap"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    Solo in {getNoteName(chordRootPc)} {s.shortName}
+                    {t.chordsView.soloInScale(
+                      getNoteName(neckChordRootPc, false, notation),
+                      t.scaleNames[s.id] ?? s.shortName
+                    )}
                   </button>
                 );
               })}
@@ -465,8 +699,8 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
           </div>
 
           <FretboardCanvas
-            rootPitchClass={chordRootPc}
-            scale={primaryScale}
+            rootPitchClass={neckChordRootPc}
+            scale={neckPrimaryScale}
             tuning={STANDARD_TUNING}
             fretCount={15}
             displayMode="notes"
@@ -476,9 +710,9 @@ export const ChordChartsView: React.FC<ChordChartsViewProps> = ({
             highlightCharacteristic={false}
             showOutOfScaleGhost={false}
             activePosition={null}
-            targetChordPitchClasses={chordTonePitchClasses}
-            targetChordRootPc={chordRootPc}
-            chordVoicingFrets={activeVoicing.frets}
+            targetChordPitchClasses={neckChordTonePcs}
+            targetChordRootPc={neckChordRootPc}
+            chordVoicingFrets={neckVoicingFrets}
           />
         </div>
       )}

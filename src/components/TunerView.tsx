@@ -8,6 +8,7 @@ import {
 } from '../music/theory';
 import { DetectedPitch, detectPitchYIN } from '../audio/pitchDetector';
 import { guitarSynth } from '../audio/guitarSynth';
+import { useI18n } from '../i18n/I18nContext';
 
 interface TunerViewProps {
   tuning: GuitarTuning;
@@ -15,6 +16,7 @@ interface TunerViewProps {
 }
 
 export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) => {
+  const { t, notation } = useI18n();
   const [micActive, setMicActive] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [a4Freq, setA4Freq] = useState<number>(440);
@@ -72,7 +74,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setMicError('Microphone access is not available in this browser context. Use the Reference Tone pegs below to tune by ear.');
+        setMicError(t.tuner.micUnavailable);
         return;
       }
 
@@ -130,8 +132,8 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
     } catch (err) {
       const msg =
         err instanceof Error && err.name === 'NotAllowedError'
-          ? 'Microphone permission was denied. Allow microphone access in your browser, or use the Reference Tone pegs below to tune by ear.'
-          : 'Could not open microphone input. Use the Reference Tone pegs below to tune by ear.';
+          ? t.tuner.micDenied
+          : t.tuner.micOpenError;
       setMicError(msg);
       stopMic();
     }
@@ -141,7 +143,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
   const strings = useMemo(() => {
     return tuning.midiNotes.map((midi, idx) => {
       const freq = midiToFrequency(midi, a4Freq);
-      const noteName = getNoteName(midi % 12, false);
+      const noteName = getNoteName(midi % 12, false, notation);
       const octave = Math.floor(midi / 12) - 1;
       return {
         idx, // 0 = String 6 (Low E) .. 5 = String 1 (High E)
@@ -152,7 +154,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
         freq,
       };
     });
-  }, [tuning, a4Freq]);
+  }, [tuning, a4Freq, notation]);
 
   // Determine active comparison cents (against locked string if selected, else nearest chromatic note)
   const displayReading = useMemo(() => {
@@ -184,7 +186,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
     });
 
     return {
-      noteName: detected.noteName,
+      noteName: getNoteName(detected.nearestMidi % 12, false, notation),
       octave: detected.octave,
       frequency: detected.frequency,
       targetFrequency: midiToFrequency(detected.nearestMidi, a4Freq),
@@ -192,12 +194,12 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
       rawCents: detected.cents,
       closestStringIdx: minDiff < 1.5 ? bestIdx : null,
     };
-  }, [detected, targetStringIdx, strings, smoothedCents, a4Freq]);
+  }, [detected, targetStringIdx, strings, smoothedCents, a4Freq, notation]);
 
   const tuningStatus = useMemo(() => {
     if (!displayReading) {
       return {
-        label: micActive ? 'Listening — Pluck a String' : 'Microphone Off',
+        label: micActive ? t.tuner.listening : t.tuner.micOff,
         toneClass: 'text-[#9CA3AF]',
         glyph: '○',
         isInTune: false,
@@ -206,7 +208,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
     const c = displayReading.rawCents;
     if (Math.abs(c) <= 4.5) {
       return {
-        label: 'In Tune',
+        label: t.tuner.inTune,
         toneClass: 'text-emerald-400',
         glyph: '●',
         isInTune: true,
@@ -214,19 +216,19 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
     }
     if (c < -4.5) {
       return {
-        label: 'Flat — Tune Up',
+        label: t.tuner.flatTuneUp,
         toneClass: 'text-amber-400',
         glyph: '▼',
         isInTune: false,
       };
     }
     return {
-      label: 'Sharp — Tune Down',
+      label: t.tuner.sharpTuneDown,
       toneClass: 'text-rose-400',
       glyph: '▲',
       isInTune: false,
     };
-  }, [displayReading, micActive]);
+  }, [displayReading, micActive, t]);
 
   const handleToggleRefTone = (strIdx: number) => {
     if (playingRefStringIdx === strIdx) {
@@ -257,17 +259,20 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-white font-display">
-              Chromatic Guitar Tuner
+              {t.tuner.title}
             </h1>
-            <div className="text-xs text-[#9CA3AF] mt-0.5 flex items-center gap-2 font-mono tabular-nums">
+            <div className="text-xs text-[#9CA3AF] mt-0.5 flex flex-wrap items-center gap-2 font-mono tabular-nums">
               <span>{tuning.shortLabel}</span>
               <span aria-hidden="true">·</span>
               <span>A4 = {a4Freq} Hz</span>
               <span aria-hidden="true">·</span>
               <span>
                 {targetStringIdx === null
-                  ? 'Auto String Detect'
-                  : `Locked to String ${strings[targetStringIdx].stringNumber} (${strings[targetStringIdx].noteName}${strings[targetStringIdx].octave})`}
+                  ? t.tuner.autoStringDetect
+                  : t.tuner.lockedToString(
+                      strings[targetStringIdx].stringNumber,
+                      `${strings[targetStringIdx].noteName}${strings[targetStringIdx].octave}`
+                    )}
               </span>
             </div>
           </div>
@@ -284,12 +289,12 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
             {micActive ? (
               <>
                 <MicOff className="w-4 h-4" />
-                Stop Microphone
+                {t.tuner.stopMic}
               </>
             ) : (
               <>
                 <Mic className="w-4 h-4" />
-                Enable Microphone
+                {t.tuner.enableMic}
               </>
             )}
           </button>
@@ -430,8 +435,8 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
               <span aria-hidden="true">·</span>
               <span>
                 {displayReading
-                  ? `${displayReading.rawCents >= 0 ? '+' : ''}${displayReading.rawCents.toFixed(1)} cents`
-                  : '0.0 cents'}
+                  ? `${displayReading.rawCents >= 0 ? '+' : ''}${displayReading.rawCents.toFixed(1)} ${t.tuner.cents}`
+                  : `0.0 ${t.tuner.cents}`}
               </span>
             </div>
           </div>
@@ -442,7 +447,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor="a4-slider" className="text-[#9CA3AF] font-medium">
-                Reference Pitch (A4)
+                {t.tuner.referencePitch}
               </label>
               <span className="font-mono text-[#F3F4F6] tabular-nums font-semibold">
                 {a4Freq} Hz
@@ -465,7 +470,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
                   onClick={() => setA4Freq(440)}
                   className="text-xs font-mono text-amber-400 hover:underline whitespace-nowrap"
                 >
-                  Reset 440
+                  {t.tuner.reset440}
                 </button>
               )}
             </div>
@@ -474,7 +479,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor="gate-slider" className="text-[#9CA3AF] font-medium">
-                Input Noise Gate
+                {t.tuner.noiseGate}
               </label>
               <span className="font-mono text-[#F3F4F6] tabular-nums font-semibold">
                 {Math.round(sensitivity * 1000)} mV
@@ -501,7 +506,7 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
             htmlFor="tuner-preset-select"
             className="block text-sm font-semibold text-white font-display"
           >
-            Tuning Preset &amp; Reference Pitches
+            {t.tuner.tuningPresetTitle}
           </label>
           <select
             id="tuner-preset-select"
@@ -514,28 +519,28 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
             }}
             className="w-full h-10 px-3.5 rounded-lg bg-[#111214] border border-[#2A2D36] text-sm font-medium text-[#F3F4F6] focus:outline-none focus:border-amber-500"
           >
-            {TUNINGS.map((t) => (
-              <option key={t.id} value={t.id} className="bg-[#181A1F]">
-                {t.name}
+            {TUNINGS.map((tun) => (
+              <option key={tun.id} value={tun.id} className="bg-[#181A1F]">
+                {tun.name}
               </option>
             ))}
           </select>
         </div>
 
         <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
-          <span>Click a string to lock target, or play its reference tone</span>
+          <span>{t.tuner.lockOrPlayHint}</span>
           {targetStringIdx !== null && (
             <button
               type="button"
               onClick={() => setTargetStringIdx(null)}
               className="text-amber-400 hover:underline font-medium whitespace-nowrap"
             >
-              Auto Detect
+              {t.tuner.autoDetect}
             </button>
           )}
         </div>
 
-        {/* 6 String Peg Rows (High E down to Low E or Low E to High E — ordered String 6 -> String 1) */}
+        {/* 6 String Peg Rows */}
         <div className="space-y-2">
           {strings.map((s) => {
             const isLocked = targetStringIdx === s.idx;
@@ -578,10 +583,10 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
                     </div>
                     <div className="text-[11px] text-[#6B7280]">
                       {isLocked
-                        ? 'Target locked'
+                        ? t.tuner.targetLocked
                         : isDetectedClosest
-                          ? 'Active detected string'
-                          : 'Click to lock target'}
+                          ? t.tuner.activeDetected
+                          : t.tuner.clickToLock}
                     </div>
                   </div>
                 </button>
@@ -592,12 +597,12 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
                     onClick={() => handlePluckReferenceString(s.idx)}
                     className="px-2.5 py-1.5 rounded-md bg-[#1D2027] border border-[#2E323D] hover:border-amber-500/50 text-xs font-medium text-[#E5E7EB] transition-colors whitespace-nowrap"
                   >
-                    Pluck
+                    {t.tuner.pluck}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleToggleRefTone(s.idx)}
-                    aria-label={isRefPlaying ? `Stop ${s.noteName} tone` : `Sustain ${s.noteName} tone`}
+                    aria-label={isRefPlaying ? `${t.tuner.mute} ${s.noteName}` : `${t.tuner.tone} ${s.noteName}`}
                     className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors whitespace-nowrap ${
                       isRefPlaying
                         ? 'bg-amber-500 text-[#111214] border-amber-400'
@@ -607,12 +612,12 @@ export const TunerView: React.FC<TunerViewProps> = ({ tuning, onTuningChange }) 
                     {isRefPlaying ? (
                       <>
                         <VolumeX className="w-3.5 h-3.5" />
-                        Mute
+                        {t.tuner.mute}
                       </>
                     ) : (
                       <>
                         <Volume2 className="w-3.5 h-3.5" />
-                        Tone
+                        {t.tuner.tone}
                       </>
                     )}
                   </button>

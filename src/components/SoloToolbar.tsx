@@ -1,15 +1,16 @@
 import React from 'react';
 import {
   GuitarTuning,
-  KEY_DISPLAY_NAMES,
   SCALES,
   ScaleCategory,
   ScaleDefinition,
   ScalePositionWindow,
   TUNINGS,
+  getKeyDisplayNames,
 } from '../music/theory';
 import { FretboardWood, NoteDisplayMode } from './FretboardCanvas';
-import { FlipHorizontal2 } from 'lucide-react';
+import { FlipHorizontal2, Keyboard } from 'lucide-react';
+import { useI18n } from '../i18n/I18nContext';
 
 interface SoloToolbarProps {
   rootPitchClass: number;
@@ -30,6 +31,8 @@ interface SoloToolbarProps {
   onHighlightChordTonesToggle: () => void;
   highlightCharacteristic: boolean;
   onHighlightCharacteristicToggle: () => void;
+  showKeyHints: boolean;
+  onShowKeyHintsToggle: () => void;
   positions: ScalePositionWindow[];
   selectedPositionId: number | null; // null = Full Neck
   onSelectPositionId: (id: number | null) => void;
@@ -61,10 +64,15 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
   onHighlightChordTonesToggle,
   highlightCharacteristic,
   onHighlightCharacteristicToggle,
+  showKeyHints,
+  onShowKeyHintsToggle,
   positions,
   selectedPositionId,
   onSelectPositionId,
 }) => {
+  const { t, notation } = useI18n();
+  const keyNames = getKeyDisplayNames(notation);
+
   return (
     <div className="bg-[#181A1F] border border-[#272A32] rounded-xl p-4 sm:p-5 space-y-4">
       {/* Row 1: Root Key Strip + Scale Selector + Tuning Selector */}
@@ -72,17 +80,19 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
         {/* Root Key Selector (12 chromatic keys) */}
         <div className="lg:col-span-5">
           <label className="block text-xs font-medium text-[#9CA3AF] mb-2">
-            Key Center
+            {t.toolbar.keyCenter}
           </label>
           <div className="grid grid-cols-6 sm:grid-cols-12 gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
-            {KEY_DISPLAY_NAMES.map((keyName, idx) => {
+            {keyNames.map((keyName, idx) => {
               const active = idx === rootPitchClass;
               return (
                 <button
-                  key={keyName}
+                  key={`${idx}-${keyName}`}
                   type="button"
                   onClick={() => onRootChange(idx)}
-                  className={`h-9 rounded-md font-mono text-xs font-semibold transition-colors whitespace-nowrap ${
+                  className={`h-9 rounded-md font-mono font-semibold transition-colors whitespace-nowrap ${
+                    notation === 'solfege' ? 'text-[11px]' : 'text-xs'
+                  } ${
                     active
                       ? 'bg-amber-500 text-[#111214]'
                       : 'text-[#D1D5DB] hover:bg-[#22252C] hover:text-white'
@@ -101,7 +111,7 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
             htmlFor="scale-select"
             className="block text-xs font-medium text-[#9CA3AF] mb-2"
           >
-            Scale / Mode
+            {t.toolbar.scaleMode}
           </label>
           <select
             id="scale-select"
@@ -110,10 +120,14 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
             className="w-full h-[46px] px-3.5 rounded-lg bg-[#111214] border border-[#2A2D36] text-sm font-medium text-[#F3F4F6] focus:outline-none focus:border-amber-500 transition-colors"
           >
             {SCALE_CATEGORIES.map((cat) => (
-              <optgroup key={cat} label={cat} className="bg-[#181A1F] text-[#9CA3AF]">
+              <optgroup
+                key={cat}
+                label={t.scaleCategories[cat] ?? cat}
+                className="bg-[#181A1F] text-[#9CA3AF]"
+              >
                 {SCALES.filter((s) => s.category === cat).map((s) => (
                   <option key={s.id} value={s.id} className="bg-[#181A1F] text-[#F3F4F6]">
-                    {s.name}
+                    {t.scaleNames[s.id] ?? s.name}
                   </option>
                 ))}
               </optgroup>
@@ -127,7 +141,7 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
             htmlFor="tuning-select"
             className="block text-xs font-medium text-[#9CA3AF] mb-2"
           >
-            Tuning
+            {t.toolbar.tuning}
           </label>
           <select
             id="tuning-select"
@@ -135,9 +149,9 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
             onChange={(e) => onTuningChange(e.target.value)}
             className="w-full h-[46px] px-3.5 rounded-lg bg-[#111214] border border-[#2A2D36] text-sm font-medium text-[#F3F4F6] focus:outline-none focus:border-amber-500 transition-colors"
           >
-            {TUNINGS.map((t) => (
-              <option key={t.id} value={t.id} className="bg-[#181A1F] text-[#F3F4F6]">
-                {t.name}
+            {TUNINGS.map((tun) => (
+              <option key={tun.id} value={tun.id} className="bg-[#181A1F] text-[#F3F4F6]">
+                {tun.name}
               </option>
             ))}
           </select>
@@ -152,7 +166,7 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
         {/* Neck Coverage / 5 Positions */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-[#9CA3AF] whitespace-nowrap">
-            Neck Zone
+            {t.toolbar.neckZone}
           </span>
           <div className="inline-flex items-center gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
             <button
@@ -164,35 +178,35 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
                   : 'text-[#9CA3AF] hover:text-white'
               }`}
             >
-              Full Neck
+              {t.toolbar.fullNeck}
             </button>
             {positions.map((pos) => (
               <button
                 key={pos.id}
                 type="button"
                 onClick={() => onSelectPositionId(pos.id)}
-                title={`${pos.name} (${pos.cagedShape}, Frets ${pos.startFret}–${pos.endFret})`}
+                title={`${t.scalesView.positionLabel(pos.id)} (${pos.cagedShape}, ${t.fretboard.fretsRange(pos.startFret, pos.endFret)})`}
                 className={`px-2.5 py-1.5 rounded-md font-mono text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                   selectedPositionId === pos.id
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                     : 'text-[#9CA3AF] hover:text-white'
                 }`}
               >
-                Pos {pos.id}
+                {t.toolbar.posShort(pos.id)}
               </button>
             ))}
           </div>
         </div>
 
         {/* Display Labels + Improvisation Overlays */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Note / Interval / Degree Toggle */}
           <div className="inline-flex items-center gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
             {(
               [
-                { id: 'notes', label: 'Notes' },
-                { id: 'intervals', label: 'Intervals' },
-                { id: 'degrees', label: 'Degrees' },
+                { id: 'notes', label: t.toolbar.notes },
+                { id: 'intervals', label: t.toolbar.intervals },
+                { id: 'degrees', label: t.toolbar.degrees },
               ] as const
             ).map((opt) => (
               <button
@@ -220,7 +234,7 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
                 : 'bg-[#111214] border-[#252830] text-[#9CA3AF] hover:text-white'
             }`}
           >
-            Target Chord Tones
+            {t.toolbar.targetChordTones}
           </button>
 
           {/* Characteristic Color Tone Toggle */}
@@ -234,9 +248,23 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
                   : 'bg-[#111214] border-[#252830] text-[#9CA3AF] hover:text-white'
               }`}
             >
-              Color Tone ({scale.characterNoteLabel})
+              {t.toolbar.colorToneBtn(scale.characterNoteLabel)}
             </button>
           )}
+
+          {/* Keyboard Hints (Q–M) Toggle */}
+          <button
+            type="button"
+            onClick={onShowKeyHintsToggle}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+              showKeyHints
+                ? 'bg-amber-500/15 border-amber-500/45 text-amber-300'
+                : 'bg-[#111214] border-[#252830] text-[#9CA3AF] hover:text-white'
+            }`}
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            {t.toolbar.keyHints}
+          </button>
 
           {/* Fret Span Selector */}
           <div className="inline-flex items-center gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
@@ -260,9 +288,9 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
           <div className="inline-flex items-center gap-1 bg-[#111214] p-1 rounded-lg border border-[#252830]">
             {(
               [
-                { id: 'rosewood', label: 'Rosewood' },
-                { id: 'ebony', label: 'Ebony' },
-                { id: 'maple', label: 'Maple' },
+                { id: 'rosewood', label: t.toolbar.rosewood },
+                { id: 'ebony', label: t.toolbar.ebony },
+                { id: 'maple', label: t.toolbar.maple },
               ] as const
             ).map((w) => (
               <button
@@ -284,7 +312,6 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
           <button
             type="button"
             onClick={onLeftHandedToggle}
-            title="Flip fretboard orientation for left-handed players"
             className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
               leftHanded
                 ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
@@ -292,7 +319,7 @@ export const SoloToolbar: React.FC<SoloToolbarProps> = ({
             }`}
           >
             <FlipHorizontal2 className="w-3.5 h-3.5" />
-            Left-Handed
+            {t.toolbar.leftHanded}
           </button>
         </div>
       </div>
